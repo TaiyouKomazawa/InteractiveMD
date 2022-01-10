@@ -1,0 +1,4 @@
+
+[submodule "Core/SerialBridge"]
+	path = Core/SerialBridge
+	url = https://github.com/TaiyouKomazawa/SerialBridge.git
