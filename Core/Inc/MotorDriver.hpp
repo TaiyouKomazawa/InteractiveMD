@@ -8,7 +8,8 @@
 #ifndef INC_MOTORDRIVER_HPP_
 #define INC_MOTORDRIVER_HPP_
 
-class MotorDriver {
+class MotorDriver
+{
 public:
 	MotorDriver();
 	virtual ~MotorDriver();
