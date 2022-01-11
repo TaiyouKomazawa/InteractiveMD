@@ -229,15 +229,15 @@ int main(void)
 		  uint8_t cmd = dev_msg.rx.command;
 		  dev_msg.tx.is_received = true;  /* 受領確認をtrueにする */
 		  switch(cmd){
-		  	  case IMD::CMD_RESET:		    /*** リセット指令を受け取った場合 ***/
-		  		  serial->write(0);			    /* 応答を送信 */
+		  	  case IMD::CMD_RESET:	/*** リセット指令を受け取った場合 ***/
+		  		  serial->write(0); 	/* 応答を送信 */
 		  		  serial->update();
-		  		  feed.data.frame_id = 0;   /* フレーム数をリセット */
-		  		  Controller_Init();			  /* 制御器起動処理を呼び出す */
+		  		  feed.data.frame_id = 0; /* フレーム数をリセット */
+		  		  Controller_Init();	/* 制御器起動処理を呼び出す */
 		  	  break;
-		  	  case IMD::CMD_GET_STATE:	  /*** 状態要求指令を受け取った場合 ***/
+		  	  case IMD::CMD_GET_STATE:	/*** 状態要求指令を受け取った場合 ***/
 		  	  default:
-		  		  serial->write(0);			    /* 応答を送信 */
+		  		  serial->write(0);	/* 応答を送信 */
 		  		  serial->update();
 		  	  break;
 		  };
@@ -263,10 +263,10 @@ int main(void)
 	  /**
 	   *  モータ指示値の更新があったときの処理
 	   */
-	  if(cmd.was_updated() && ctrlr_active){								        /* 指示値の更新があるかつ制御器がアクティブであるとき */
-		  if(feed.data.frame_id != cmd.data.frame_id){				        /* 新規(フレーム数が違う)データであったとき */
-			  TIM_WD_RESET(htim17);											                /* 通信タイムアウト監視用カウンタ(TIM17)をリセット */
-			  feed.data.frame_id = cmd.data.frame_id;						        /* フレーム数を返信データにセット */
+	  if(cmd.was_updated() && ctrlr_active){					/* 指示値の更新があるかつ制御器がアクティブであるとき */
+		  if(feed.data.frame_id != cmd.data.frame_id){		/* 新規(フレーム数が違う)データであったとき */
+			  TIM_WD_RESET(htim17);								/* 通信タイムアウト監視用カウンタ(TIM17)をリセット */
+			  feed.data.frame_id = cmd.data.frame_id;			/* フレーム数を返信データにセット */
 			  /* モータ1の限界速度範囲内の速度指示値を制御器に渡す */
 			  if(cmd.data.command[M1]*cmd.data.command[M1] <= init[M1].rx.max_rps*init[M1].rx.max_rps)
 				  v_vel[M1].target = (double)cmd.data.command[M1];
@@ -279,10 +279,10 @@ int main(void)
 			  feed.data.velocity[M2] = (float)v_vel[M2].feedback;		    /* モータ2の現在の回転速度[rps]を返信データに渡す */
 			  feed.data.current[M1] = (int16_t)(v_cur[M1].feedback*1E3);/* モータ1の現在の電流値[mA]を返信データに渡す */
 			  feed.data.current[M2] = (int16_t)(v_cur[M2].feedback*1E3);/* モータ2の現在の電流値[mA]を返信データに渡す */
-			  serial->write(2);												                  /* 返信データ(feed)を送信 */
-			  link_led_state = true;											              /* データの更新があったので点灯 */
-		  }else																                        /* 新規データではなかったとき */
-			  link_led_state = false;										                /* データの更新がなかったので消灯 */
+			  serial->write(2);					/* 返信データ(feed)を送信 */
+			  link_led_state = true;				/* データの更新があったので点灯 */
+		  }else									/* 新規データではなかったとき */
+			  link_led_state = false;			/* データの更新がなかったので消灯 */
 	  }
 	  /**
 	   * モータ制御処理
@@ -298,15 +298,15 @@ int main(void)
 	   *             +-------+       +-------+
 	   *              V.feedback      C.feedback
 	   */
-	  if(ctrlr_active){												              /* 制御器がアクティブであるとき */
-		  double tim = TIM_COUNT_2_US / 1E6;						      /* 時間計測用タイマ(TIM15)より現在のインターバル時間[秒]を取得*/
-		  if(tim >= CTRL_INTERVAL){									          /* 現在のインターバルが制御周期以上のとき制御を実行する*/
+	  if(ctrlr_active){												/* 制御器がアクティブであるとき */
+		  double tim = TIM_COUNT_2_US / 1E6;						/* 時間計測用タイマ(TIM15)より現在のインターバル時間[秒]を取得*/
+		  if(tim >= CTRL_INTERVAL){									/* 現在のインターバルが制御周期以上のとき制御を実行する*/
 			  v_vel[M1].feedback = enc[M1]->get_velocity(tim);	/* モータ1の速度制御器に現在の回転速度[rps]を渡す */
-			  vel_ctrl[M1]->step(tim);								          /* モータ1の速度制御器を更新 */
+			  vel_ctrl[M1]->step(tim);								/* モータ1の速度制御器を更新 */
 			  v_vel[M2].feedback = enc[M2]->get_velocity(tim);	/* モータ2の速度制御器に現在の回転速度[rps]を渡す */
-			  vel_ctrl[M2]->step(tim);								          /* モータ2の速度制御器を更新 */
+			  vel_ctrl[M2]->step(tim);								/* モータ2の速度制御器を更新 */
 
-			  v_cur[M1].target = v_vel[M1].output;					    /* モータ1の速度制御出力を電流制御器の目標値に渡す */
+			  v_cur[M1].target = v_vel[M1].output;					/* モータ1の速度制御出力を電流制御器の目標値に渡す */
 			  v_cur[M2].target = v_vel[M2].output;              /* モータ2の速度制御出力を電流制御器の目標値に渡す */
 
 			  v_cur[M1].feedback = am->get_current(M1);         /* モータ1の電流制御器に現在の電流値[A]を渡す */
@@ -709,7 +709,7 @@ static void MX_TIM15_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM15_Init 2 */
-  HAL_TIM_Base_Start_IT(&htim15);
+  HAL_TIM_Base_Start_IT(&htim15);  /* 割り込み処理を開始 */
   /* USER CODE END TIM15_Init 2 */
 
 }
@@ -771,7 +771,7 @@ static void MX_TIM17_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM17_Init 2 */
-  HAL_TIM_Base_Start_IT(&htim17);
+  HAL_TIM_Base_Start_IT(&htim17);  /* 割り込み処理を開始 */
   /* USER CODE END TIM17_Init 2 */
 
 }
@@ -895,7 +895,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if(htim == &htim15)       /* 時間計測の割り込み処理 */
 		tim_count++;
 	if(htim == &htim17){      /* 通信タイムアウト時の処理 */
-		if(ctrlr_active){       /* 制御がアクティブである場合、制御器をリセット */
+		if(ctrlr_active){		 /* 制御がアクティブである場合、制御器をリセット */
 			v_vel[M1].target = 0;
 			v_vel[M2].target = 0;
 			vel_ctrl[M1]->reset();
