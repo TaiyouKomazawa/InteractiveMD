@@ -13,6 +13,9 @@
 #include <main.h>
 #include <MotorDriver.hpp>
 
+/**
+ * @brief 2線式(DIR,PWM)制御のMotorDriver派生クラス
+ */
 class TwoWireMD final : public MotorDriver
 {
 public:

@@ -10,17 +10,26 @@
 
 #include "main.h"
 
+/**
+ * @brief ADC式電流センサクラス
+ */
 class CurrentSensor
 {
 public:
 	enum
 	{
+		/* ADCの分解能 */
 		ADC_RESOLUTION = 4096,
 	};
 
+	/**
+	 * @brief センサのデータを格納する構造体型
+	 */
 	typedef struct ADCDataType
 	{
+		/* 3回分の測定データ(平均フィルタ用) */
 		float data[3];
+		/* 電圧のオフセット値 */
 		float offset;
 	}adc_data_t;
 

@@ -10,6 +10,10 @@
 
 #include "main.h"
 
+/**
+ * @brief 直交エンコーダインターフェイスクラス.
+ * STM32タイマーのEncoderModeを用いて2相式エンコーダから角度及び速度を取得する
+ */
 class QEI
 {
 public:
