@@ -22,20 +22,24 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
 
+/* 通信用ライブラリをインクルード */
 #include <SerialBridge.hpp>
 #include <STM32SPISerial.hpp>
-
+/* 通信で使用する定義済みメッセージをインクルード */
+#include <IMDConfigMsgs.hpp>
 #include <CtrlMsgs.hpp>
 #include <ParamMsgs.hpp>
-
+/* モータドライバクラスをインクルード */
 #include <MotorDriver.hpp>
 #include <TwoWireMD.hpp>
+/* 直交エンコーダクラスをインクルード */
 #include <QEI.hpp>
+/* 電流センサクラスをインクルード */
 #include <CurrentSensor.hpp>
-#include <IMDConfigMsgs.hpp>
+/* PID制御クラスをインクルード */
 #include <PID.hpp>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,18 +49,32 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define M1		0U		//Motor 1
-#define M2		1U		//Motor 2
 
-#define CTRL_INTERVAL 	(1.0 / 100)	//[sec]
-#define ACS712_V_2_I		(1 / 0.185) 	//[A/V]
+#define M1		0U  /* モータ1の要素 */
+#define M2		1U  /* モータ2の要素 */
+
+/** @brief モータ制御器の更新タイミング */
+#define CTRL_INTERVAL 	(1.0 / 100)   //[sec]
+/** @brief 電流センサ(ACS712ELCTR-05B)の感度 */
+#define ACS712_V_2_I		(1 / 0.185)   //[A/V]
 
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+/** 
+ * @brief tim_countから実時間[マイクロ秒]を取得する
+ */
 #define TIM_COUNT_2_US (tim_count * 8UL) //[us]
+/** 
+ * @brief tim_countに値xを入れる
+ * @param[in] x 入力値
+ */
 #define TIM_COUNT_SET(x) (tim_count = x)
+/**
+ * @brief htim(ウォッチドックタイマ)をリセットする
+ * @param[in] htim TIM_HandleTypeDefインスタンス
+ */
 #define TIM_WD_RESET(htim) (__HAL_TIM_SET_COUNTER(&(htim), 0))
 /* USER CODE END PM */
 
@@ -80,11 +98,17 @@ UART_HandleTypeDef huart2;
 STM32SPISerial *dev;
 SerialBridge *serial;
 
+/** @brief システムコマンドを扱うメッセージ型 */
 IMD::DevMsg dev_msg;
+/** @brief モータ指示値を受け付けるメッセージ型 */
 CtrlCmdMsg cmd;
+/** @brief 制御フィードバック値を送信するメッセージ型 */
 CtrlFeedMsg feed;
+/** @brief 速度制御の制御パラメータを受け付けるメッセージ型 */
 CtrlParamMsg vel_param[2];
+/** @brief 電流制御の制御パラメータを受け付けるメッセージ型 */
 CtrlParamMsg cur_param[2];
+/** @brief 制御起動時に必要なパラメータを受け付けるメッセージ型 */
 CtrlInitMsg init[2];
 
 MotorDriver *md[2];
@@ -99,7 +123,12 @@ PID *cur_ctrl[2];
 PID::ctrl_variable_t v_cur[2];
 PID::ctrl_param_t p_cur[2];
 
+/** @brief 制御器の起動状態を示す変数 true:動作中/false:停止中 */
 volatile bool ctrlr_active = false;
+/**
+ * @brief 時間計測用カウンタ(TIM15)の割り込み数を数える変数
+ *  1カウントつき8マイクロ秒が経過する
+ */
 volatile long tim_count = 0; //tim_count [8 * us]
 
 /* USER CODE END PV */
@@ -167,8 +196,10 @@ int main(void)
   MX_TIM15_Init();
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
+  /* MD enable ピンをLOW(モータへの出力を無効)にする */
   HAL_GPIO_WritePin(MD_EN_GPIO_Port, MD_EN_Pin, GPIO_PIN_RESET);
 
+  /* STM32 SPIを有効化 受送信バッファ数:28bytes */
   dev = new STM32SPISerial(&hspi1, 28);
   serial = new SerialBridge(dev);
 
@@ -180,95 +211,118 @@ int main(void)
   serial->add_frame(5, &cur_param[M1]);
   serial->add_frame(6, &cur_param[M2]);
 
-  //Controller_Init();
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /* データの更新の有無を出力するための変数 */
 	  static bool link_led_state = false;
 
-	  serial->update();
+	  serial->update();	/* データの更新 */
 
+	  /**
+	   *  システムコマンドが更新されたときの処理
+	   */
 	  if(dev_msg.was_updated()){
 		  uint8_t cmd = dev_msg.rx.command;
-		  dev_msg.tx.is_received = true;
+		  dev_msg.tx.is_received = true;  /* 受領確認をtrueにする */
 		  switch(cmd){
-		  	  case IMD::CMD_RESET:
-		  		  serial->write(0);
+		  	  case IMD::CMD_RESET:		    /*** リセット指令を受け取った場合 ***/
+		  		  serial->write(0);			    /* 応答を送信 */
 		  		  serial->update();
-		  		  feed.data.frame_id = 0;
-		  		  Controller_Init();
+		  		  feed.data.frame_id = 0;   /* フレーム数をリセット */
+		  		  Controller_Init();			  /* 制御器起動処理を呼び出す */
 		  	  break;
-		  	  case IMD::CMD_GET_STATE:
+		  	  case IMD::CMD_GET_STATE:	  /*** 状態要求指令を受け取った場合 ***/
 		  	  default:
-		  		  serial->write(0);
+		  		  serial->write(0);			    /* 応答を送信 */
 		  		  serial->update();
 		  	  break;
 		  };
-		  dev_msg.rx.command = IMD::CMD_NONE;
+		  dev_msg.rx.command = IMD::CMD_NONE;	/* コマンドをクリア */
 	  }
-
+	  /* モータ1の速度制御パラメータの更新をチェックする */
 	  if(Check_ControlParameters(3, serial, p_vel[M1], vel_param[M1])){
 		  vel_ctrl[M1]->reset();
 		  cur_ctrl[M1]->reset();
 	  }
+	  /* モータ2の速度制御パラメータの更新をチェックする */
 	  if(Check_ControlParameters(4, serial, p_vel[M2], vel_param[M2])){
 		  vel_ctrl[M2]->reset();
 		  cur_ctrl[M2]->reset();
 	  }
+	  /* モータ1の電流制御パラメータの更新をチェックする */
 	  if(Check_ControlParameters(5, serial, p_cur[M1], cur_param[M1]))
 		  cur_ctrl[M1]->reset();
+	  /* モータ2の電流制御パラメータの更新をチェックする */
 	  if(Check_ControlParameters(6, serial, p_cur[M2], cur_param[M2]))
 		  cur_ctrl[M2]->reset();
 
-	  if(cmd.was_updated() && ctrlr_active){
-		  if(feed.data.frame_id != cmd.data.frame_id){
-			  TIM_WD_RESET(htim17);
-			  feed.data.frame_id = cmd.data.frame_id;
+	  /**
+	   *  モータ指示値の更新があったときの処理
+	   */
+	  if(cmd.was_updated() && ctrlr_active){								        /* 指示値の更新があるかつ制御器がアクティブであるとき */
+		  if(feed.data.frame_id != cmd.data.frame_id){				        /* 新規(フレーム数が違う)データであったとき */
+			  TIM_WD_RESET(htim17);											                /* 通信タイムアウト監視用カウンタ(TIM17)をリセット */
+			  feed.data.frame_id = cmd.data.frame_id;						        /* フレーム数を返信データにセット */
+			  /* モータ1の限界速度範囲内の速度指示値を制御器に渡す */
 			  if(cmd.data.command[M1]*cmd.data.command[M1] <= init[M1].rx.max_rps*init[M1].rx.max_rps)
 				  v_vel[M1].target = (double)cmd.data.command[M1];
+			  /* モータ2の限界速度範囲内の速度指示値を制御器に渡す */
 			  if(cmd.data.command[M2]*cmd.data.command[M2] <= init[M2].rx.max_rps*init[M2].rx.max_rps)
 				  v_vel[M2].target = (double)cmd.data.command[M2];
-			  feed.data.angle[M1] = (float)enc[M1]->get_angle();
-			  feed.data.angle[M2] = (float)enc[M2]->get_angle();
-			  feed.data.velocity[M1] = (float)v_vel[M1].feedback;
-			  feed.data.velocity[M2] = (float)v_vel[M2].feedback;
-			  feed.data.current[M1] = (int16_t)(v_cur[M1].feedback*1E3);
-			  feed.data.current[M2] = (int16_t)(v_cur[M2].feedback*1E3);
-			  serial->write(2);
-			  link_led_state = true;
-		  }else
-			  link_led_state = false;
+			  feed.data.angle[M1] = (float)enc[M1]->get_angle();			  /* モータ1の現在の回転角度[rev]を返信データに渡す */
+			  feed.data.angle[M2] = (float)enc[M2]->get_angle();			  /* モータ2の現在の回転角度[rev]を返信データに渡す */
+			  feed.data.velocity[M1] = (float)v_vel[M1].feedback;		    /* モータ1の現在の回転速度[rps]を返信データに渡す */
+			  feed.data.velocity[M2] = (float)v_vel[M2].feedback;		    /* モータ2の現在の回転速度[rps]を返信データに渡す */
+			  feed.data.current[M1] = (int16_t)(v_cur[M1].feedback*1E3);/* モータ1の現在の電流値[mA]を返信データに渡す */
+			  feed.data.current[M2] = (int16_t)(v_cur[M2].feedback*1E3);/* モータ2の現在の電流値[mA]を返信データに渡す */
+			  serial->write(2);												                  /* 返信データ(feed)を送信 */
+			  link_led_state = true;											              /* データの更新があったので点灯 */
+		  }else																                        /* 新規データではなかったとき */
+			  link_led_state = false;										                /* データの更新がなかったので消灯 */
 	  }
+	  /**
+	   * モータ制御処理
+     * - vel: モータの速度を制御する
+     * - cur: モータに流れる電流を制御する(トルク制御)
+     * *制御器の配置図* 
+	   *                V.output -> C.target
+	   * V.target  +-----------+   +-----------+ C.output
+	   *     ----->| Velocity  +-->| Current   +---> PWM
+	   *           | Controller|   | Controller|
+	   *           +---------+-+   +---------+-+
+	   *             ^       |       ^       |
+	   *             +-------+       +-------+
+	   *              V.feedback      C.feedback
+	   */
+	  if(ctrlr_active){												              /* 制御器がアクティブであるとき */
+		  double tim = TIM_COUNT_2_US / 1E6;						      /* 時間計測用タイマ(TIM15)より現在のインターバル時間[秒]を取得*/
+		  if(tim >= CTRL_INTERVAL){									          /* 現在のインターバルが制御周期以上のとき制御を実行する*/
+			  v_vel[M1].feedback = enc[M1]->get_velocity(tim);	/* モータ1の速度制御器に現在の回転速度[rps]を渡す */
+			  vel_ctrl[M1]->step(tim);								          /* モータ1の速度制御器を更新 */
+			  v_vel[M2].feedback = enc[M2]->get_velocity(tim);	/* モータ2の速度制御器に現在の回転速度[rps]を渡す */
+			  vel_ctrl[M2]->step(tim);								          /* モータ2の速度制御器を更新 */
 
-	  if(ctrlr_active){
-		  double tim = TIM_COUNT_2_US / 1E6;
-		  if(tim >= CTRL_INTERVAL){
-			  v_vel[M1].feedback = enc[M1]->get_velocity(tim);
-			  vel_ctrl[M1]->step(tim);
-			  v_vel[M2].feedback = enc[M2]->get_velocity(tim);
-			  vel_ctrl[M2]->step(tim);
+			  v_cur[M1].target = v_vel[M1].output;					    /* モータ1の速度制御出力を電流制御器の目標値に渡す */
+			  v_cur[M2].target = v_vel[M2].output;              /* モータ2の速度制御出力を電流制御器の目標値に渡す */
 
-			  v_cur[M1].target = v_vel[M1].output;
-			  v_cur[M2].target = v_vel[M2].output;
+			  v_cur[M1].feedback = am->get_current(M1);         /* モータ1の電流制御器に現在の電流値[A]を渡す */
+			  cur_ctrl[M1]->step(tim);                          /* モータ1の電流制御器を更新 */
+			  v_cur[M2].feedback = am->get_current(M2);         /* モータ2の電流制御器に現在の電流値[A]を渡す */
+			  cur_ctrl[M2]->step(tim);                          /* モータ2の電流制御器を更新 */
 
-			  v_cur[M1].feedback = am->get_current(M1);
-			  cur_ctrl[M1]->step(tim);
-			  v_cur[M2].feedback = am->get_current(M2);
-			  cur_ctrl[M2]->step(tim);
+			  TIM_COUNT_SET(0);                                 /* 時間計測用タイマ(TIM15)のカウンタをリセット */
 
-			  TIM_COUNT_SET(0);
-
-			  md[M1]->set(v_cur[M1].output);
-			  md[M2]->set(v_cur[M2].output);
+			  md[M1]->set(v_cur[M1].output);                    /* モータ1のモータドライバに出力を渡す */
+			  md[M2]->set(v_cur[M2].output);                    /* モータ1のモータドライバに出力を渡す */
 
 			  HAL_GPIO_WritePin(LINK_LED_GPIO_Port, LINK_LED_Pin, (GPIO_PinState)link_led_state);
 		  }
 	  }else
-		  TIM_COUNT_SET(0);
+		  TIM_COUNT_SET(0);                                   /* 時間計測用タイマ(TIM15)のカウンタをリセット */
 
     /* USER CODE END WHILE */
 
@@ -830,12 +884,18 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+ * @brief Timer Period Elapsed Callback Function  
+ *  時間経過後に呼ばれる割り込み関数(予約済み関数)
+ * @param[in] htim TIM_HandleTypeDef構造体ポインタ
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if(htim == &htim15)
+	if(htim == &htim15)       /* 時間計測の割り込み処理 */
 		tim_count++;
-	if(htim == &htim17){
-		if(ctrlr_active){
+	if(htim == &htim17){      /* 通信タイムアウト時の処理 */
+		if(ctrlr_active){       /* 制御がアクティブである場合、制御器をリセット */
 			v_vel[M1].target = 0;
 			v_vel[M2].target = 0;
 			vel_ctrl[M1]->reset();
@@ -846,42 +906,61 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			cur_ctrl[M2]->reset();
 			md[M1]->set(0);
 			md[M2]->set(0);
-
+      /* 現在の状態をタイムアウトに指定 */
 			dev_msg.tx.state = IMD::STATE_TIMEOUT;
 		}
 	}
 }
 
+/**
+ * @brief 制御に必要な初期パラメータの受信を待つ関数
+ * 
+ * @param[in] id     メッセージの登録先
+ * @param[in] serial 使用するSerialBridgeクラスポインタ
+ * @param[out] init  参照するCtrlInitMsg構造体
+ * @retval None
+ */
 static void MotorControl_WaitInitParams(int id, SerialBridge *serial, CtrlInitMsg &init)
 {
-	serial->add_frame(id, &init);
+	serial->add_frame(id, &init);     /* initメッセージをidとして登録する */
 
-	init.tx.is_received = false;
+	init.tx.is_received = false;      
 	init.rx.is_received = false;
 
 	while(1){
-		bool rc = init.rx.is_received;
-		if(!rc)
-			serial->write(id);
-		else
+		bool rc = init.rx.is_received;  /* コントローラ側からの応答結果を格納 */
+		if(!rc)                         /* 応答がfalseであるとき、コントローラからの応答を待つ */
+			serial->write(id);            
+		else                            /* 応答があったときループを抜ける */
 			break;
 		serial->update();
 	}
-
+  /* 受信した各パラメータが0でないことを確認する */
 	if(init.rx.encoder_cpr == 0)
 		Error_Handler();
 	if(init.rx.gear_ratio == 0)
 		Error_Handler();
 	if(init.rx.max_rps == 0)
 		Error_Handler();
-	serial->rm_frame(id);
+	serial->rm_frame(id);             /* メッセージの登録を解除 */
 }
 
+/**
+ * @brief 制御器の各制御パラメータの更新を確認する関数
+ * 
+ * @param[in] id      メッセージの登録先
+ * @param[in] serial  使用するSerialBridgeクラスポインタ
+ * @param[out] cparam 参照するPID::ctrl_param_t構造体
+ * @param[out] param  参照するCtrlParamMsg構造体
+ * @retval true データの更新あり
+ * @retval false  データの更新なし
+ */
 static bool Check_ControlParameters(int id, SerialBridge *serial, PID::ctrl_param_t &cparam, CtrlParamMsg &param)
 {
-	if(param.was_updated()){
+	if(param.was_updated()){ /* データの更新があるとき */
 		param.tx.is_received = true;
 
+    /* 受信データを制御器/返信データに渡す */
 		param.tx.kp = cparam.kp = param.rx.kp;
 		param.tx.ki = cparam.ki = param.rx.ki;
 		param.tx.kd = cparam.kd = param.rx.kd;
@@ -889,55 +968,67 @@ static bool Check_ControlParameters(int id, SerialBridge *serial, PID::ctrl_para
 		serial->write(id);
 
 		return true;
-	}else
+	}else /* データの更新がないとき */
 		return false;
 }
 
+/**
+ * @brief 制御器の起動処理
+ *   初期パラメータの待機/制御用のオブジェクトを展開
+ * @retval None
+ */
 static void Controller_Init(void)
 {
+  /* 起動処理の開始がわかりやすいようにLINK_LEDを点灯する */
 	HAL_GPIO_WritePin(LINK_LED_GPIO_Port, LINK_LED_Pin, GPIO_PIN_SET);
-
+  /* 制御がアクティブであるとき、停止処理を行う */
 	if(ctrlr_active){
 		Controller_Deinit();
 	}
-
+  /* コントローラからの初期パラメータを待機 */
 	MotorControl_WaitInitParams(7, serial, init[M1]);
 	MotorControl_WaitInitParams(8, serial, init[M2]);
-
+  /* モータドライバを初期化 */
 	md[M1] = new TwoWireMD(&htim3, TIM_CHANNEL_1, MD1_DIR_GPIO_Port, MD1_DIR_Pin, true);
 	md[M2] = new TwoWireMD(&htim3, TIM_CHANNEL_2, MD2_DIR_GPIO_Port, MD2_DIR_Pin, true);
-
+  /* エンコーダを初期化 */
 	enc[M1] = new QEI(&htim1, 1.0 / init[M1].rx.encoder_cpr / init[M1].rx.gear_ratio);
 	enc[M2] = new QEI(&htim2, 1.0 / init[M2].rx.encoder_cpr / init[M2].rx.gear_ratio);
-
+  /* 速度制御用構造体を初期化 */
 	v_vel[M1] = PID::ctrl_variable_t{0, 0, 0};
 	v_vel[M2] = PID::ctrl_variable_t{0, 0, 0};
 	p_vel[M1] = PID::ctrl_param_t{0.6, 0.3, 0, 1 / init[M1].rx.max_rps, true};
 	p_vel[M2] = PID::ctrl_param_t{0.6, 0.3, 0, 1 / init[M2].rx.max_rps, true};
-
+  /* 電流制御用構造体を初期化 */
 	v_cur[M1] = PID::ctrl_variable_t{0, 0, 0};
 	v_cur[M2] = PID::ctrl_variable_t{0, 0, 0};
 	p_cur[M1] = PID::ctrl_param_t{0.1, 0, 0, 1, true};
 	p_cur[M2] = PID::ctrl_param_t{0.1, 0, 0, 1, true};
-
+  /* 速度制御器を初期化 */
 	vel_ctrl[M1] = new PID(&v_vel[M1], &p_vel[M1]);
 	vel_ctrl[M2] = new PID(&v_vel[M2], &p_vel[M2]);
-
+  /* 速度制御器を初期化 */
 	cur_ctrl[M1] = new PID(&v_cur[M1], &p_cur[M1]);
 	cur_ctrl[M2] = new PID(&v_cur[M2], &p_cur[M2]);
-
+  /* MD enable ピンをHIGH(モータへの出力を有効)にする */
 	HAL_GPIO_WritePin(MD_EN_GPIO_Port, MD_EN_Pin, GPIO_PIN_SET);
-
+  /* 電流センサを初期化 */
 	am = new CurrentSensor(&hadc1, 2, ACS712_V_2_I, 100);
+  /* 制御をアクティブに設定 */
 	ctrlr_active = true;
-
+  /* 起動処理の終了がわかりやすいようにLINK_LEDを消灯する */
 	HAL_GPIO_WritePin(LINK_LED_GPIO_Port, LINK_LED_Pin, GPIO_PIN_RESET);
 }
-
+/**
+ * @brief 制御器の停止処理
+ *   制御用オブジェクトの解体
+ * @retval None
+ */
 static void Controller_Deinit(void)
 {
+  /* MD enable ピンをLOW(モータへの出力を無効)にする */
 	HAL_GPIO_WritePin(MD_EN_GPIO_Port, MD_EN_Pin, GPIO_PIN_RESET);
-
+  /* 各オブジェクト要素を解体 */
 	delete md[M1];
 	delete md[M2];
 
@@ -951,7 +1042,7 @@ static void Controller_Deinit(void)
 	delete cur_ctrl[M2];
 
 	delete am;
-
+  /* 制御を非アクティブに設定 */
 	ctrlr_active = false;
 }
 
