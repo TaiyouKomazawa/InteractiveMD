@@ -7,12 +7,12 @@
 
 #include <MotorDriver.hpp>
 
-MotorDriver::MotorDriver() {
-	// TODO Auto-generated constructor stub
-
-}
-
-MotorDriver::~MotorDriver() {
-	// TODO Auto-generated destructor stub
-}
+/**
+ * @brief Construct a new Motor Driver:: Motor Driver object
+ */
+MotorDriver::MotorDriver() {}
+/**
+ * @brief Destroy the Motor Driver:: Motor Driver object
+ */
+MotorDriver::~MotorDriver() {}
 
