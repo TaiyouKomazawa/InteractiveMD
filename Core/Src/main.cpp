@@ -57,6 +57,8 @@
 #define CTRL_INTERVAL 	(1.0 / 100)   //[sec]
 /** @brief 電流センサ(ACS712ELCTR-05B)の感度 */
 #define ACS712_V_2_I		(1 / 0.185)   //[A/V]
+/** @brief 暴走検知用カウンタの許容値(この回数を超えると非常停止する) */
+#define CTRL_FAULT_COUNT_LIMIT 16
 
 /* USER CODE END PD */
 
@@ -130,6 +132,11 @@ volatile bool ctrlr_active = false;
  *  1カウントつき8マイクロ秒が経過する
  */
 volatile long tim_count = 0; //tim_count [8 * us]
+/**
+ * @brief 暴走検知用のカウンタ変数
+ *  指示値とフィードバックの符号の不一致回数によりカウントアップする
+ */
+uint8_t ctrl_fault_count = 0;
 
 /* USER CODE END PV */
 
@@ -277,8 +284,8 @@ int main(void) {
 					v_vel[M2].target = (double) cmd.data.command[M2];
 				feed.data.angle[M1] = (float) enc[M1]->get_angle(); /* モータ1の現在の回転角度[rev]を返信データに渡す */
 				feed.data.angle[M2] = (float) enc[M2]->get_angle(); /* モータ2の現在の回転角度[rev]を返信データに渡す */
-				feed.data.velocity[M1] = (float) v_vel[M1].feedback; /* モータ1の現在の回転速度[rps]を返信データに渡す */
-				feed.data.velocity[M2] = (float) v_vel[M2].feedback; /* モータ2の現在の回転速度[rps]を返信データに渡す */
+				feed.data.velocity[M1] = (float) enc[M1]->get_velocity(); /* モータ1の現在の回転速度[rps]を返信データに渡す */
+				feed.data.velocity[M2] = (float) enc[M2]->get_velocity(); /* モータ2の現在の回転速度[rps]を返信データに渡す */
 				feed.data.current[M1] = (int16_t) (v_cur[M1].feedback * 1E3);/* モータ1の現在の電流値[mA]を返信データに渡す */
 				feed.data.current[M2] = (int16_t) (v_cur[M2].feedback * 1E3);/* モータ2の現在の電流値[mA]を返信データに渡す */
 				serial->write(2); /* 返信データ(feed)を送信 */
@@ -320,7 +327,18 @@ int main(void) {
 				TIM_COUNT_SET(0); /* 時間計測用タイマ(TIM15)のカウンタをリセット */
 
 				md[M1]->set(v_cur[M1].output); /* モータ1のモータドライバに出力を渡す */
-				md[M2]->set(v_cur[M2].output); /* モータ1のモータドライバに出力を渡す */
+				md[M2]->set(v_cur[M2].output); /* モータ2のモータドライバに出力を渡す */
+
+				/* 符号が不一致かどうかをチェックする */
+				if (v_vel[M1].target * v_vel[M1].feedback < 0
+						|| v_vel[M2].target * v_vel[M2].feedback < 0)
+					ctrl_fault_count++;
+				else
+					/* 問題なく収束するならばカウントリセット */
+					ctrl_fault_count = 0;
+				/* 許容値を超えて符号が一致しない場合暴走したと判断する */
+				if (ctrl_fault_count > CTRL_FAULT_COUNT_LIMIT)
+					Error_Handler();
 
 				HAL_GPIO_WritePin(LINK_LED_GPIO_Port, LINK_LED_Pin,
 						(GPIO_PinState) link_led_state);
@@ -967,9 +985,9 @@ static void Controller_Init(void) {
 	MotorControl_WaitInitParams(8, serial, init[M2]);
 	/* モータドライバを初期化 */
 	md[M1] = new TwoWireMD(&htim3, TIM_CHANNEL_1, MD1_DIR_GPIO_Port,
-			MD1_DIR_Pin, true);
+	MD1_DIR_Pin, init[M1].rx.dir_reverse);
 	md[M2] = new TwoWireMD(&htim3, TIM_CHANNEL_2, MD2_DIR_GPIO_Port,
-			MD2_DIR_Pin, true);
+	MD2_DIR_Pin, init[M2].rx.dir_reverse);
 	/* エンコーダを初期化 */
 	enc[M1] = new QEI(&htim1,
 			1.0 / init[M1].rx.encoder_cpr / init[M1].rx.gear_ratio);
@@ -1038,7 +1056,17 @@ void Error_Handler(void) {
 	/* USER CODE BEGIN Error_Handler_Debug */
 	/* User can add his own implementation to report the HAL error return state */
 	//__disable_irq();
+	/* 制御がアクティブであるとき、停止処理を行う */
+	if (ctrlr_active)
+		Controller_Deinit();
+
+	char error_msg[] = { "IMD EMERGENCY STOP! control failed :(\r\n"
+			"To restart, press the reset button\r\n\r\n" };
 	while (1) {
+		/* エラー表示(UART) */
+		HAL_UART_Transmit(&huart2, (uint8_t*) error_msg, strlen(error_msg),
+				1000);
+		/* エラー表示(LED) 4回高速点滅, 2回点滅 */
 		HAL_GPIO_WritePin(LINK_LED_GPIO_Port, LINK_LED_Pin, GPIO_PIN_RESET);
 		uint8_t i = 8;
 		while (i--) {
@@ -1050,6 +1078,7 @@ void Error_Handler(void) {
 			HAL_Delay(450);
 			HAL_GPIO_TogglePin(LINK_LED_GPIO_Port, LINK_LED_Pin);
 		}
+
 		HAL_Delay(1000);
 	}
 	/* USER CODE END Error_Handler_Debug */

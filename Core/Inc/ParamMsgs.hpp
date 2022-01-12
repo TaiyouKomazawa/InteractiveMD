@@ -44,6 +44,8 @@ typedef struct CtrlInitMsgType
 	float gear_ratio;
 	/* モータの(出力軸の)定格回転速度[rps] */
 	float max_rps;
+	/* 回転方向を反転させる。(エンコーダの向きに合わせて設定する) */
+	bool dir_reverse;
 }ctrl_init_msg_t;
 
 /**
