@@ -269,4 +269,5 @@
 			<resource resourceType="PROJECT" workspacePath="/InteractiveMD"/>
 		</configuration>
 	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
 </cproject>
