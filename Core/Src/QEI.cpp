@@ -15,7 +15,8 @@
  */
 QEI::QEI(TIM_HandleTypeDef *htim_enc, double scale)
 :	htim_enc_(htim_enc),
-	scale_(scale)
+	scale_(scale),
+	vel_(0)
 {
 	if(HAL_TIM_Encoder_Start(htim_enc_, TIM_CHANNEL_ALL) != HAL_OK)
 		Error_Handler();
@@ -63,9 +64,19 @@ double QEI::get_angle()
 double QEI::get_velocity(double dt)
 {
 	if(dt){
-		double vel = (get_angle() - last_angle_) / dt;
+		vel_ = (get_angle() - last_angle_) / dt;
 		last_angle_ = get_angle();
-		return vel;
+		return vel_;
 	}
 	return 0;
+}
+
+/**
+ * @brief 速度を出力する関数(データを更新しない)
+ *
+ * @return double 最新のQEI::get_velocity(double dt)の値
+ */
+double QEI::get_velocity()
+{
+	return vel_;
 }

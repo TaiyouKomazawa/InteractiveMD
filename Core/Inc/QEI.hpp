@@ -26,12 +26,14 @@ public:
 	double get_angle();
 
 	double get_velocity(double dt);
+	double get_velocity();
 
 private:
 	TIM_HandleTypeDef *htim_enc_;
 	volatile long count_;
 	double scale_;
 	double last_angle_;
+	double vel_;
 };
 
 #endif /* INC_QEI_HPP_ */
