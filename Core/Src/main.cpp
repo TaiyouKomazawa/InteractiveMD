@@ -54,7 +54,7 @@
 #define M2		1U  /* モータ2の要素 */
 
 /** @brief モータ制御器の更新タイミング */
-#define CTRL_INTERVAL 	(1.0 / 100)   //[sec]
+#define CTRL_INTERVAL 	(1.0 / 200)   //[sec]
 /** @brief 電流センサ(ACS712ELCTR-05B)の感度 */
 #define ACS712_V_2_I		(1 / 0.185)   //[A/V]
 /** @brief 暴走検知用カウンタの許容値(この回数を超えると非常停止する) */
