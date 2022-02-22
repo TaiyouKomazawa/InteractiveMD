@@ -923,20 +923,15 @@ static void MotorControl_WaitInitParams(int id, SerialBridge *serial,
 
 	while (1) {
 		bool rc = init.rx.is_received; /* コントローラ側からの応答結果を格納 */
-		if (!rc) /* 応答がfalseであるとき、コントローラからの応答を待つ */
-			serial->write(id);
-		else
-			/* 応答があったときループを抜ける */
-			break;
+		if (rc){
+			if(init.rx.encoder_cpr != 0 && init.rx.gear_ratio != 0.0 && init.rx.max_rps != 0.0)
+				break; /* データに問題がなければループを抜ける */
+			else
+				init.rx.is_received = false;
+		}
+		serial->write(id);
 		serial->update();
 	}
-	/* 受信した各パラメータが0でないことを確認する */
-	if (init.rx.encoder_cpr == 0)
-		Error_Handler();
-	if (init.rx.gear_ratio == 0)
-		Error_Handler();
-	if (init.rx.max_rps == 0)
-		Error_Handler();
 	serial->rm_frame(id); /* メッセージの登録を解除 */
 }
 
