@@ -916,15 +916,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
  */
 static void MotorControl_WaitInitParams(int id, SerialBridge *serial,
 		CtrlInitMsg &init) {
-	serial->add_frame(id, &init); /* initメッセージをidとして登録する */
-
+	init.rx = ctrl_init_msg_t();
 	init.tx.is_received = false;
-	init.rx.is_received = false;
+	const float min_limit = 0.000001;
+
+	serial->add_frame(id, &init); /* initメッセージをidとして登録する */
 
 	while (1) {
 		bool rc = init.rx.is_received; /* コントローラ側からの応答結果を格納 */
 		if (rc){
-			if(init.rx.encoder_cpr != 0 && init.rx.gear_ratio != 0.0 && init.rx.max_rps != 0.0)
+			if((init.rx.encoder_cpr != 0) && (init.rx.gear_ratio >= min_limit) && (init.rx.max_rps >= min_limit))
 				break; /* データに問題がなければループを抜ける */
 			else
 				init.rx.is_received = false;
@@ -978,6 +979,7 @@ static void Controller_Init(void) {
 	/* コントローラからの初期パラメータを待機 */
 	MotorControl_WaitInitParams(7, serial, init[M1]);
 	MotorControl_WaitInitParams(8, serial, init[M2]);
+
 	/* モータドライバを初期化 */
 	md[M1] = new TwoWireMD(&htim3, TIM_CHANNEL_1, MD1_DIR_GPIO_Port,
 	MD1_DIR_Pin, init[M1].rx.dir_reverse);
