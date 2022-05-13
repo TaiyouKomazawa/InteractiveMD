@@ -15,17 +15,19 @@
  * @param[in] dir_port		DIR(方向)出力用GPIO_TypeDef構造体ポインタ
  * @param[in] dir_pin 		DIR(方向)出力先ピン
  * @param[in] inverse_dir 	DIR(方向)出力を反転する
+ * @param[in] max_duty      PWM最大出力(比率)
  */
 TwoWireMD::TwoWireMD(TIM_HandleTypeDef *htim_pwm, uint16_t tim_pwm_ch,
 		GPIO_TypeDef *dir_port, uint16_t dir_pin,
-		bool inverse_dir)
+		bool inverse_dir,
+    float max_duty)
 : MotorDriver(),
   htim_pwm_(htim_pwm),
   tim_pwm_ch_(tim_pwm_ch),
   dir_port_(dir_port),
   dir_pin_(dir_pin),
   inverse_dir_(inverse_dir),
-  limit_(htim_pwm->Init.Period)
+  limit_((unsigned int)(htim_pwm->Init.Period * max_duty))
 {
 	HAL_TIM_PWM_Start(htim_pwm_, tim_pwm_ch_);
 	__HAL_TIM_SET_COMPARE(htim_pwm_, tim_pwm_ch_, 0);
